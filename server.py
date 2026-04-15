@@ -28,7 +28,8 @@ async def ping() -> str:
 @mcp.tool()
 async def health() -> dict:
     """Статус сервера"""
-    return {"status": "ok", "concurrency": MAX_CONCURRENT}
+    async with semaphore:
+        return {"status": "ok", "concurrency": MAX_CONCURRENT}
 
 @mcp.tool()
 async def run_command(command: str) -> str:
