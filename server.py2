@@ -1,0 +1,77 @@
+import asyncio
+import logging
+import subprocess
+from fastmcp import FastMCP
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s"
+)
+logger = logging.getLogger("mcp")
+
+MAX_CONCURRENT = 50
+semaphore = asyncio.Semaphore(MAX_CONCURRENT)
+
+mcp = FastMCP("tigra-prod")
+
+def guarded(func):
+    async def wrapper(args, *kwargs):
+        async with semaphore:
+            try:
+                return await asyncio.wait_for(func(args, *kwargs), timeout=10)
+            except asyncio.TimeoutError:
+                logger.warning("Timeout in tool")
+                return "timeout"
+            except Exception as e:
+                logger.exception("Tool error")
+                return f"error: {str(e)}"
+    return wrapper
+
+@mcp.tool()
+@guarded
+async def hello(name: str = "world") -> str:
+    return f"Hello, {name}!"
+
+@mcp.tool()
+@guarded
+async def ping() -> str:
+    return "pong"
+
+@mcp.tool()
+@guarded
+async def health() -> dict:
+    return {
+        "status": "ok",
+        "concurrency": MAX_CONCURRENT
+    }
+
+@mcp.tool()
+@guarded
+async def run_command(command: str) -> str:
+    """Выполнить команду в шелле сервера (используй осторожно!)"""
+    try:
+        proc = await asyncio.create_subprocess_shell(
+            command,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=5.0)
+        return f"STDOUT: {stdout.decode()}\nSTDERR: {stderr.decode()}"
+    except Exception as e:
+        return f"failed to run command: {str(e)}"
+
+if __name__ == "__main__":
+    try:
+        import uvloop
+        asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+        logger.info("uvloop enabled")
+    except ImportError:
+        logger.info("uvloop not found, using default event loop")
+
+    logger.info("Starting MCP server...")
+
+    mcp.run(
+        transport="sse",
+        host="127.0.0.1",
+        port=8000
+    )

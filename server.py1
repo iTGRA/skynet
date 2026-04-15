@@ -1,0 +1,81 @@
+import asyncio
+import logging
+from fastmcp import FastMCP
+
+# 🔧 базовая настройка логов
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s"
+)
+
+logger = logging.getLogger("mcp")
+
+# 🔥 ограничение параллельных задач (анти-DDOS)
+MAX_CONCURRENT = 50
+semaphore = asyncio.Semaphore(MAX_CONCURRENT)
+
+mcp = FastMCP("tigra-prod")
+
+# 🧠 обёртка для всех tools
+def guarded(func):
+    async def wrapper(*args, **kwargs):
+        async with semaphore:
+            try:
+                return await asyncio.wait_for(func(*args, **kwargs), timeout=10)
+            except asyncio.TimeoutError:
+                logger.warning("Timeout in tool")
+                return "timeout"
+            except Exception as e:
+                logger.exception("Tool error")
+                return f"error: {str(e)}"
+    return wrapper
+
+
+# --- TOOLS ---
+
+@mcp.tool()
+@guarded
+async def hello(name: str = "world") -> str:
+    return f"Hello, {name}!"
+
+
+@mcp.tool()
+@guarded
+async def ping() -> str:
+    return "pong"
+
+
+# 🔥 полезно для мониторинга
+@mcp.tool()
+@guarded
+async def health() -> dict:
+    return {
+        "status": "ok",
+        "concurrency": MAX_CONCURRENT
+    }
+
+
+# 🔥 нагрузочный тест
+@mcp.tool()
+@guarded
+async def stress(delay: float = 0.1) -> str:
+    await asyncio.sleep(delay)
+    return "done"
+
+
+# --- MAIN ---
+
+if __name__ == "__main__":
+    import uvloop
+
+    asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+
+    logger.info("Starting MCP server...")
+
+    mcp.run(
+        transport="sse",          # оставляем SSE (для Skynet нормально)
+        host="127.0.0.1",           # ❗ обязательно, иначе извне не зайдешь
+        port=8000,
+        workers=1,                # важно для SSE (не ставь много!)
+        timeout_keep_alive=30     # держим соединение
+    )
