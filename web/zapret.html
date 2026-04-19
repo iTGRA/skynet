@@ -129,6 +129,11 @@
       display: flex; gap: 12px; flex-wrap: wrap; color: var(--muted); font-size: 12px; padding: 0 16px 10px;
     }
     .footer-note { color: var(--muted); font-size: 12px; margin-top: 12px; line-height: 1.5; }
+    .output-header { margin: 0 16px 12px; font-size: 22px; font-weight: 900; letter-spacing: .04em; color: #f3fff9; text-transform: uppercase; }
+    .output-terminal.success { border-color: rgba(34, 197, 94, 0.68); box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.16), 0 0 26px rgba(34, 197, 94, 0.14), var(--shadow); }
+    .generation-status { margin: 0 16px 14px; padding: 10px 14px; border-radius: 12px; background: rgba(34, 197, 94, 0.12); color: #d7ffe5; border: 1px solid rgba(34, 197, 94, 0.35); font-size: 13px; font-weight: 700; display: none; }
+    .generation-status.visible { display: block; }
+    .generation-status.error { background: rgba(245, 158, 11, 0.12); color: #fff0cc; border-color: rgba(245, 158, 11, 0.32); }
     .copy { font-size: 12px; padding: 9px 12px; }
     .explain-grid {
       display: grid;
@@ -249,41 +254,40 @@
         </div>
 
         <div class='field'>
-          <label for='args'>Аргументы desync</label>
-          <textarea id='args' spellcheck='false'>--dpi-desync=fake --dpi-desync-ttl=3 --dpi-desync-fooling=badsum</textarea>
+          <label for='zapretArgs'>Аргументы desync</label>
+          <textarea id='zapretArgs' spellcheck='false'>--dpi-desync=fake --dpi-desync-ttl=3 --dpi-desync-fooling=badsum</textarea>
           <div class='hint'>Можно выбрать один из пресетов ниже или вручную отредактировать строку аргументов.</div>
         </div>
 
         <div class='field'>
           <label>Пресеты</label>
           <div class='button-row'>
-            <button class='btn primary' data-preset='fake'>Фейк + BadSum</button>
-            <button class='btn' data-preset='split'>Split + TTL2</button>
-            <button class='btn' data-preset='disorder'>Disorder (QUIC/UDP)</button>
-            <button class='btn ghost' data-preset='custom'>Свои настройки</button>
+            <button type='button' class='btn primary' id='presetFakeBtn'>Фейк + BadSum</button>
+            <button type='button' class='btn' id='presetSplitBtn'>Split + TTL2</button>
+            <button type='button' class='btn' id='presetDisorderBtn'>Disorder (QUIC/UDP)</button>
+            <button type='button' class='btn ghost' id='presetCustomBtn'>Свои настройки</button>
           </div>
         </div>
 
         <div class='field'>
           <label>Действия скрипта</label>
           <div class='button-row'>
-            <button class='btn warn' id='generateUninstall'>Показать превью самоочистки</button>
+            <button type='button' class='btn warn' id='generateBtn'>Сгенерировать скрипт</button>
           </div>
           <div class='hint'>Блок установки заканчивается командой /system script add, которая пишет на роутер скрипт zapret-uninstall.</div>
         </div>
 
         <div class='toggle'>
           <input id='multiServer' type='checkbox' />
-          <label for='multiServer'>Режим нескольких серверов</label>
+          <label for='multiServer'>Несколько серверов</label>
         </div>
-        <div class='hint'>Если включить режим, страница соберёт отдельный блок установки RouterOS для каждого имени сервера или IP.</div>
+        <div class='hint'>Если включить режим, страница соберёт отдельный блок установки RouterOS для каждого сервера и пронумерует ресурсы как zapret-1, zapret-2 и т.д.</div>
 
         <div id='multiBox' class='subpanel hidden'>
           <div class='field'>
-            <label for='servers'>Список серверов</label>
-            <textarea id='servers' spellcheck='false' placeholder='server-1\nserver-2\n192.0.2.10'>server-1
-server-2</textarea>
-            <div class='hint'>Разделяйте значения переводами строк или запятыми.</div>
+            <label for='multiServerCount'>Количество серверов</label>
+            <input id='multiServerCount' type='number' min='1' step='1' value='2' />
+            <div class='hint'>Будут созданы отдельные блоки установки для каждого экземпляра с уникальными именами контейнеров, VETH и bridge.</div>
           </div>
         </div>
 
@@ -291,20 +295,22 @@ server-2</textarea>
       </div>
 
       <div class='output'>
-        <div class='terminal card'>
+        <div class='terminal card output-terminal'>
           <div class='terminal-head'>
             <div class='terminal-dots'><span></span><span></span><span></span></div>
             <div>превью установки RouterOS</div>
-            <button class='btn copy' id='copyAll'>Скопировать вывод</button>
+            <button type='button' class='btn copy' id='copyBtn'>Скопировать вывод</button>
           </div>
+          <div class='output-header'>КОД ДЛЯ ТЕРМИНАЛА MIKROTIK</div>
           <div id='output'></div>
+          <div class='generation-status' id='generationStatus'>Скрипт успешно сгенерирован</div>
         </div>
 
         <div class='terminal card hidden' id='uninstallTerminal'>
           <div class='terminal-head'>
             <div class='terminal-dots'><span></span><span></span><span></span></div>
             <div>превью скрипта zapret-uninstall</div>
-            <button class='btn copy' id='copyUninstall'>Скопировать удаление</button>
+            <button type='button' class='btn copy' id='copyUninstallBtn'>Скопировать удаление</button>
           </div>
           <div id='uninstallOutput'></div>
         </div>
@@ -319,27 +325,34 @@ server-2</textarea>
       disorder: { label: 'Disorder (QUIC/UDP)', args: '--dpi-desync=disorder --dpi-desync-ttl=1 --dpi-desync-fooling=badseq' }
     };
 
+    let activePresetLabel = 'Свои настройки';
+
     const els = {
       containerName: document.getElementById('containerName'),
       imageName: document.getElementById('imageName'),
-      args: document.getElementById('args'),
-      servers: document.getElementById('servers'),
+      zapretArgs: document.getElementById('zapretArgs'),
       multiServer: document.getElementById('multiServer'),
+      multiServerCount: document.getElementById('multiServerCount'),
       multiBox: document.getElementById('multiBox'),
       output: document.getElementById('output'),
+      generationStatus: document.getElementById('generationStatus'),
       uninstallOutput: document.getElementById('uninstallOutput'),
       uninstallTerminal: document.getElementById('uninstallTerminal'),
       presetLabel: document.getElementById('presetLabel'),
       blockCount: document.getElementById('blockCount'),
       argsLength: document.getElementById('argsLength'),
       modeLabel: document.getElementById('modeLabel'),
-      copyAll: document.getElementById('copyAll'),
-      copyUninstall: document.getElementById('copyUninstall'),
-      generateUninstall: document.getElementById('generateUninstall')
+      copyBtn: document.getElementById('copyBtn'),
+      copyUninstallBtn: document.getElementById('copyUninstallBtn'),
+      generateBtn: document.getElementById('generateBtn')
     };
 
     function slugify(value) {
-      return String(value).trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'server';
+      return String(value)
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '') || 'zapret';
     }
 
     function hashCode(value) {
@@ -351,34 +364,48 @@ server-2</textarea>
       return Math.abs(hash);
     }
 
-    function normalizeServers() {
-      const raw = els.multiServer.checked ? els.servers.value : els.containerName.value;
-      const list = String(raw).split(/[\n,]+/g).map(function(s) { return s.trim(); }).filter(Boolean);
-      return list.length ? list : ['server'];
+    function getBaseName() {
+      return slugify(els.containerName.value || 'zapret');
     }
 
-    function buildResourceNames(serverLabel) {
-      const base = els.containerName.value.trim() || 'zapret';
-      const suffix = els.multiServer.checked ? '-' + slugify(serverLabel) : '';
-      const resource = base + suffix;
+    function getInstances() {
+      const baseName = getBaseName();
+      if (!els.multiServer.checked) {
+        return [{ index: 1, displayName: baseName, title: baseName }];
+      }
+
+      const count = Math.max(1, Number.parseInt(els.multiServerCount.value, 10) || 1);
+      return Array.from({ length: count }, (_, idx) => {
+        const index = idx + 1;
+        return {
+          index,
+          displayName: `${baseName}-${index}`,
+          title: `zapret-${index}`
+        };
+      });
+    }
+
+    function buildResourceNames(instance) {
+      const prefix = instance.displayName;
       return {
-        container: resource,
-        mount: resource + '-mount',
-        bridge: resource + '-bridge',
-        veth: resource + '-veth',
-        table: resource + '-table',
-        script: resource + '-uninstall'
+        container: prefix,
+        mount: `${prefix}-mount`,
+        bridge: `${prefix}-bridge`,
+        veth: `${prefix}-veth`,
+        table: `${prefix}-table`,
+        script: `${prefix}-uninstall`
       };
     }
 
-    function buildNetworkPlan(serverLabel) {
-      const seed = hashCode((els.containerName.value.trim() || 'zapret') + '::' + serverLabel);
+    function buildNetworkPlan(instance) {
+      const baseName = getBaseName();
+      const seed = hashCode(`${baseName}::${instance.index}`);
       const octet = (seed % 200) + 20;
       return {
-        subnet: '172.' + octet + '.0.0/24',
-        bridgeAddress: '172.' + octet + '.0.1/24',
-        vethAddress: '172.' + octet + '.0.2/24',
-        gateway: '172.' + octet + '.0.1'
+        subnet: `172.${octet}.0.0/24`,
+        bridgeAddress: `172.${octet}.0.1/24`,
+        vethAddress: `172.${octet}.0.2/24`,
+        gateway: `172.${octet}.0.1`
       };
     }
 
@@ -386,80 +413,72 @@ server-2</textarea>
       return String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
     }
 
-    function buildUninstallSource() {
+    function buildUninstallSource(instance) {
+      const names = buildResourceNames(instance);
       return [
-        '/container remove [find comment="zapret-generated"]',
-        '/container mounts remove [find comment="zapret-generated"]',
-        '/ip firewall raw remove [find comment="zapret-generated"]',
-        '/ip firewall mangle remove [find comment="zapret-generated"]',
-        '/ip firewall nat remove [find comment="zapret-generated"]',
-        '/ip firewall filter remove [find comment="zapret-generated"]',
-        '/routing rule remove [find comment="zapret-generated"]',
-        '/routing table remove [find comment="zapret-generated"]',
-        '/interface bridge port remove [find comment="zapret-generated"]',
-        '/ip address remove [find comment="zapret-generated"]',
-        '/interface bridge remove [find comment="zapret-generated"]',
-        '/interface veth remove [find comment="zapret-generated"]'
-      ].join('\n');
+        `:local containerName "${names.container}";`,
+        `:local mountName "${names.mount}";`,
+        `:local bridgeName "${names.bridge}";`,
+        `:local vethName "${names.veth}";`,
+        `:local tableName "${names.table}";`,
+        '/container remove [find where comment="zapret-generated" and name=$containerName]',
+        '/container mounts remove [find where comment="zapret-generated" and name=$mountName]',
+        '/ip firewall raw remove [find where comment="zapret-generated"]',
+        '/ip firewall mangle remove [find where comment="zapret-generated"]',
+        '/ip firewall nat remove [find where comment="zapret-generated"]',
+        '/ip firewall filter remove [find where comment="zapret-generated"]',
+        '/routing rule remove [find where comment="zapret-generated" and table=$tableName]',
+        '/routing table remove [find where comment="zapret-generated" and name=$tableName]',
+        '/interface bridge port remove [find where comment="zapret-generated" and interface=$vethName]',
+        '/ip address remove [find where comment="zapret-generated" and interface=$bridgeName]',
+        '/interface bridge remove [find where comment="zapret-generated" and name=$bridgeName]',
+        '/interface veth remove [find where comment="zapret-generated" and name=$vethName]'
+      ].join('\\n');
     }
 
-    function buildInstallScript(serverLabel) {
-      const names = buildResourceNames(serverLabel);
-      const network = buildNetworkPlan(serverLabel);
+    function buildInstallScript(instance) {
+      const names = buildResourceNames(instance);
+      const network = buildNetworkPlan(instance);
       const image = els.imageName.value.trim() || 'ghcr.io/bol-van/zapret:latest';
-      const args = els.args.value.trim();
-      const uninstallSource = buildUninstallSource().split('\n').join('; ');
+      const args = els.zapretArgs.value.trim();
+      const uninstallSource = buildUninstallSource(instance).replace(/\\n/g, '; ');
       return [
-        '# ' + serverLabel,
+        `# ${instance.title}`,
         '# блок установки с самоочисткой',
-        '# аргументы desync: ' + (args || '(нет)'),
-        ':local containerName "' + names.container + '";',
-        ':local mountName "' + names.mount + '";',
-        ':local bridgeName "' + names.bridge + '";',
-        ':local vethName "' + names.veth + '";',
-        ':local tableName "' + names.table + '";',
-        ':local scriptName "' + names.script + '";',
+        `# аргументы desync: ${args || '(нет)'}`,
+        `:local containerName "${names.container}";`,
+        `:local mountName "${names.mount}";`,
+        `:local bridgeName "${names.bridge}";`,
+        `:local vethName "${names.veth}";`,
+        `:local tableName "${names.table}";`,
+        `:local scriptName "${names.script}";`,
         '/interface bridge add name=$bridgeName comment="zapret-generated"',
-        '/interface veth add name=$vethName address="' + network.vethAddress + '" gateway="' + network.gateway + '" comment="zapret-generated"',
-        '/ip address add address="' + network.bridgeAddress + '" interface=$bridgeName comment="zapret-generated"',
+        `/interface veth add name=$vethName address="${network.vethAddress}" gateway="${network.gateway}" comment="zapret-generated"`,
+        `/ip address add address="${network.bridgeAddress}" interface=$bridgeName comment="zapret-generated"`,
         '/interface bridge port add bridge=$bridgeName interface=$vethName comment="zapret-generated"',
         '/routing table add fib name=$tableName comment="zapret-generated"',
-        '/routing rule add action=lookup table=$tableName dst-address="' + network.subnet + '" comment="zapret-generated"',
+        `/routing rule add action=lookup table=$tableName dst-address="${network.subnet}" comment="zapret-generated"`,
         '/ip firewall filter add chain=forward action=accept comment="zapret-generated"',
         '/ip firewall nat add chain=dstnat action=accept comment="zapret-generated"',
         '/ip firewall mangle add chain=prerouting action=accept comment="zapret-generated"',
         '/ip firewall raw add chain=prerouting action=accept comment="zapret-generated"',
         '/container mounts add name=$mountName src="/flash/zapret" dst="/etc/zapret" comment="zapret-generated"',
-        '/container add name=$containerName remote-image="' + image + '" interface=$vethName root-dir="/containers/' + names.container + '" mounts=$mountName comment="zapret-generated"',
-        '/system script add name=zapret-uninstall source="' + escapeRouterOsString(uninstallSource) + '"'
-      ].join('\n');
+        `/container add name=$containerName remote-image="${image}" interface=$vethName root-dir="/containers/${names.container}" mounts=$mountName comment="zapret-generated"`,
+        `/system script add name=$scriptName source="${escapeRouterOsString(uninstallSource)}"`
+      ].join('\\n');
     }
 
-    function buildUninstallPreview(serverLabel) {
-      const names = buildResourceNames(serverLabel);
-      const network = buildNetworkPlan(serverLabel);
+    function buildUninstallPreview(instance) {
+      const names = buildResourceNames(instance);
+      const network = buildNetworkPlan(instance);
+      const uninstallSource = buildUninstallSource(instance);
       return [
-        '# ' + serverLabel,
+        `# ${instance.title}`,
         '# удаление с самоочисткой в обратном порядке',
-        ':local containerName "' + names.container + '";',
-        ':local mountName "' + names.mount + '";',
-        ':local bridgeName "' + names.bridge + '";',
-        ':local vethName "' + names.veth + '";',
-        ':local tableName "' + names.table + '";',
-        '/container remove [find comment="zapret-generated"]',
-        '/container mounts remove [find comment="zapret-generated"]',
-        '/ip firewall raw remove [find comment="zapret-generated"]',
-        '/ip firewall mangle remove [find comment="zapret-generated"]',
-        '/ip firewall nat remove [find comment="zapret-generated"]',
-        '/ip firewall filter remove [find comment="zapret-generated"]',
-        '/routing rule remove [find comment="zapret-generated"]',
-        '/routing table remove [find comment="zapret-generated"]',
-        '/interface bridge port remove [find comment="zapret-generated"]',
-        '/ip address remove [find comment="zapret-generated"]',
-        '/interface bridge remove [find comment="zapret-generated"]',
-        '/interface veth remove [find comment="zapret-generated"]',
-        '# сетевой диапазон: ' + network.subnet
-      ].join('\n');
+        `# источник скрипта: ${names.script}`,
+        uninstallSource,
+        `# сетевой диапазон: ${network.subnet}`
+      ].join('\\n');
     }
 
     function escapeHtml(text) {
@@ -467,29 +486,31 @@ server-2</textarea>
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')
-        .replace(/\"/g, '&quot;')
+        .replace(/\\\"/g, '&quot;')
         .replace(/'/g, '&#39;');
     }
 
-    function renderInstall() {
-      const args = els.args.value.trim();
-      const servers = normalizeServers();
-      const blocks = servers.map(function(server) { return { server: server, command: buildInstallScript(server) }; });
+    function render() {
+      const instances = getInstances();
+      const args = els.zapretArgs.value.trim();
 
-      els.presetLabel.textContent = els.multiServer.checked ? 'Свои настройки / несколько серверов' : (blocks.length === 1 ? 'Один сервер' : 'Свои настройки');
-      els.blockCount.innerHTML = blocks.length + ' <small>' + (blocks.length === 1 ? 'сервер' : 'серверов') + '</small>';
-      els.argsLength.innerHTML = args.length + ' <small>символов</small>';
+      els.presetLabel.textContent = activePresetLabel + (els.multiServer.checked ? ' / несколько серверов' : '');
+      els.blockCount.innerHTML = `${instances.length} <small>${instances.length === 1 ? 'сервер' : 'серверов'}</small>`;
+      els.argsLength.innerHTML = `${args.length} <small>символов</small>`;
       els.modeLabel.textContent = els.multiServer.checked ? 'Несколько серверов с самоочисткой' : 'Самоочищающийся';
       els.multiBox.classList.toggle('hidden', !els.multiServer.checked);
 
-      els.output.innerHTML = blocks.map(function(block) {
-        const names = buildResourceNames(block.server);
-        const network = buildNetworkPlan(block.server);
-        return '<section class="server-block">' +
-          '<div class="server-title"><div>' + escapeHtml(block.server) + '</div><span>' + (els.multiServer.checked ? 'повторяемый блок с самоочисткой' : 'блок с самоочисткой') + '</span></div>' +
-          '<div class="meta-row"><div>контейнер: ' + escapeHtml(names.container) + '</div><div>bridge: ' + escapeHtml(names.bridge) + '</div><div>подсеть: ' + escapeHtml(network.subnet) + '</div></div>' +
-          '<pre>' + escapeHtml(block.command) + '</pre>' +
-        '</section>';
+      els.output.innerHTML = instances.map((instance) => {
+        const names = buildResourceNames(instance);
+        const network = buildNetworkPlan(instance);
+        const command = buildInstallScript(instance);
+        return `
+          <section class="server-block">
+            <div class="server-title"><div>${escapeHtml(instance.title)}</div><span>${els.multiServer.checked ? 'отдельный блок с самоочисткой' : 'блок с самоочисткой'}</span></div>
+            <div class="meta-row"><div>контейнер: ${escapeHtml(names.container)}</div><div>bridge: ${escapeHtml(names.bridge)}</div><div>подсеть: ${escapeHtml(network.subnet)}</div></div>
+            <pre>${escapeHtml(command)}</pre>
+          </section>
+        `;
       }).join('');
 
       if (!els.uninstallTerminal.classList.contains('hidden')) {
@@ -498,70 +519,87 @@ server-2</textarea>
     }
 
     function renderUninstall() {
-      const servers = normalizeServers();
-      const blocks = servers.map(function(server) { return { server: server, command: buildUninstallPreview(server) }; });
-
-      els.uninstallOutput.innerHTML = blocks.map(function(block) {
-        const names = buildResourceNames(block.server);
-        return '<section class="server-block">' +
-          '<div class="server-title"><div>' + escapeHtml(block.server) + '</div><span>обратное удаление</span></div>' +
-          '<div class="meta-row"><div>контейнер: ' + escapeHtml(names.container) + '</div><div>скрипт: ' + escapeHtml(names.script) + '</div></div>' +
-          '<pre>' + escapeHtml(block.command) + '</pre>' +
-        '</section>';
+      const instances = getInstances();
+      els.uninstallOutput.innerHTML = instances.map((instance) => {
+        const names = buildResourceNames(instance);
+        const command = buildUninstallPreview(instance);
+        return `
+          <section class="server-block">
+            <div class="server-title"><div>${escapeHtml(instance.title)}</div><span>обратное удаление</span></div>
+            <div class="meta-row"><div>контейнер: ${escapeHtml(names.container)}</div><div>скрипт: ${escapeHtml(names.script)}</div></div>
+            <pre>${escapeHtml(command)}</pre>
+          </section>
+        `;
       }).join('');
     }
 
     function setPreset(name) {
       if (name === 'custom') {
-        els.presetLabel.textContent = 'Свои настройки';
+        activePresetLabel = 'Свои настройки';
+        render();
         return;
       }
+
       const preset = presetMeta[name];
       if (!preset) return;
-      els.args.value = preset.args;
-      els.presetLabel.textContent = preset.label;
-      renderInstall();
+      els.zapretArgs.value = preset.args;
+      activePresetLabel = preset.label;
+      render();
     }
 
-    document.querySelectorAll('[data-preset]').forEach(function(btn) {
-      btn.addEventListener('click', function() { setPreset(btn.dataset.preset); });
-    });
+    document.getElementById('presetFakeBtn').addEventListener('click', function() { setPreset('fake'); });
+    document.getElementById('presetSplitBtn').addEventListener('click', function() { setPreset('split'); });
+    document.getElementById('presetDisorderBtn').addEventListener('click', function() { setPreset('disorder'); });
+    document.getElementById('presetCustomBtn').addEventListener('click', function() { setPreset('custom'); });
 
-    [els.containerName, els.imageName, els.args, els.servers].forEach(function(el) {
-      el.addEventListener('input', renderInstall);
+    [els.containerName, els.imageName, els.zapretArgs, els.multiServerCount].forEach(function(el) {
+      el.addEventListener('input', render);
     });
-    els.multiServer.addEventListener('change', renderInstall);
+    els.multiServer.addEventListener('change', render);
 
-    els.generateUninstall.addEventListener('click', function() {
+    els.generateBtn.addEventListener('click', function() {
+      render();
       els.uninstallTerminal.classList.remove('hidden');
       renderUninstall();
+      els.output.parentElement.classList.add('success');
+      els.generationStatus.textContent = 'Скрипт успешно сгенерирован';
+      els.generationStatus.classList.add('visible');
+      els.generationStatus.classList.remove('error');
+      clearTimeout(window.__zapretSuccessTimer);
+      window.__zapretSuccessTimer = setTimeout(function() {
+        els.output.parentElement.classList.remove('success');
+      }, 1800);
     });
 
-    els.copyAll.addEventListener('click', async function() {
-      const text = Array.from(document.querySelectorAll('#output .server-block pre')).map(function(pre) { return pre.textContent; }).join('\n\n');
+    els.copyBtn.addEventListener('click', async function() {
+      const text = Array.from(document.querySelectorAll('#output .server-block pre')).map(function(pre) {
+        return pre.textContent;
+      }).join('\\n\\n');
       try {
         await navigator.clipboard.writeText(text);
-        els.copyAll.textContent = 'Скопировано';
-        setTimeout(function() { els.copyAll.textContent = 'Скопировать вывод'; }, 1400);
+        els.copyBtn.textContent = 'Скопировано';
+        setTimeout(function() { els.copyBtn.textContent = 'Скопировать вывод'; }, 1400);
       } catch (e) {
-        els.copyAll.textContent = 'Не удалось скопировать';
-        setTimeout(function() { els.copyAll.textContent = 'Скопировать вывод'; }, 1400);
+        els.copyBtn.textContent = 'Не удалось скопировать';
+        setTimeout(function() { els.copyBtn.textContent = 'Скопировать вывод'; }, 1400);
       }
     });
 
-    els.copyUninstall.addEventListener('click', async function() {
-      const text = Array.from(document.querySelectorAll('#uninstallOutput .server-block pre')).map(function(pre) { return pre.textContent; }).join('\n\n');
+    els.copyUninstallBtn.addEventListener('click', async function() {
+      const text = Array.from(document.querySelectorAll('#uninstallOutput .server-block pre')).map(function(pre) {
+        return pre.textContent;
+      }).join('\\n\\n');
       try {
         await navigator.clipboard.writeText(text);
-        els.copyUninstall.textContent = 'Скопировано';
-        setTimeout(function() { els.copyUninstall.textContent = 'Скопировать удаление'; }, 1400);
+        els.copyUninstallBtn.textContent = 'Скопировано';
+        setTimeout(function() { els.copyUninstallBtn.textContent = 'Скопировать удаление'; }, 1400);
       } catch (e) {
-        els.copyUninstall.textContent = 'Не удалось скопировать';
-        setTimeout(function() { els.copyUninstall.textContent = 'Скопировать удаление'; }, 1400);
+        els.copyUninstallBtn.textContent = 'Не удалось скопировать';
+        setTimeout(function() { els.copyUninstallBtn.textContent = 'Скопировать удаление'; }, 1400);
       }
     });
 
-    renderInstall();
+    render();
   </script>
 </body>
 </html>
